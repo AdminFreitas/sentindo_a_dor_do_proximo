@@ -1,0 +1,32 @@
+# Ambiente
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Testes e cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Banco de dados (volume local do Docker)
+db_data/
+
+# Frontend — gerenciado pela outra equipe, mas não versionar artefatos gerados aqui
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*

@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_ADMIN_USER}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER} -d ${DB_NAME}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+# O serviço "backend" entra aqui na Sprint 3 (docs/SDP_DOCUMENTACAO_PROJETO.md,
+# seção 8), quando a API FastAPI existir de fato. Por enquanto ele roda fora
+# do Docker, direto no ambiente Python local, conectando em localhost:5432
+# com o usuário app_runtime (criado por db/init/db_init.sql — não pelas
+# variáveis DB_ADMIN_*, que configuram só o usuário dono/bootstrap).
+#
+# Sem serviço de IA: este projeto não tem componente de IA (ver
+# docs/REQUISITOS.md, seção 7) — diferente do projeto de referência, que
+# tinha um serviço "ollama" aqui.
+
+volumes:
+  db_data:
