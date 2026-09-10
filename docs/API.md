@@ -1,10 +1,10 @@
 # API — Documentação de Endpoints
 
-> Adaptado de um projeto de referência (clínica odontológica). Endpoints marcados com ❓ dependem de decisões ainda pendentes em `SDP_DECISOES_PENDENTES.md` e não devem ser implementados como definitivos até essas decisões fecharem.
+> ✅ D01–D09 fechadas. Este documento reflete o schema real de `BANCO_DADOS.md` — não o rascunho anterior. Se algo aqui divergir do banco, o banco vale.
 
-API REST, formato JSON. **Autenticação via sessão de servidor** (cookie `HttpOnly` + `Secure` + `SameSite=Strict`) — ver `SDP_DOCUMENTACAO_PROJETO.md`, seção 3.5. Todo endpoint exige autenticação, exceto `/auth/login`. Toda autorização por papel segue a tabela RBAC de `SDP_DOCUMENTACAO_PROJETO.md` seção 4.2 e é verificada no Backend, nunca só no Frontend.
+API REST, formato JSON. **Autenticação via sessão de servidor** (cookie `HttpOnly` + `Secure` + `SameSite=Strict`). Todo endpoint exige autenticação, exceto `/api/auth/login` e, a partir da Fase 2 da Central de Atendimento, os endpoints de webhook (que usam verificação de assinatura do provedor no lugar de sessão — ver `ARQUITETURA.md`, seção 2.1). Toda autorização por papel segue a tabela RBAC de `REGRAS_NEGOCIO.md`, seção 4, e é verificada no Backend, nunca só no Frontend.
 
-## Convenção de códigos HTTP usados no projeto
+## Convenção de códigos HTTP
 
 | Código | Significado | Quando usar |
 |---|---|---|
@@ -14,165 +14,243 @@ API REST, formato JSON. **Autenticação via sessão de servidor** (cookie `Http
 | 401 | Unauthorized | Não autenticado ou sessão inválida/expirada |
 | 403 | Forbidden | Autenticado, mas sem permissão para essa ação (RBAC) |
 | 404 | Not Found | Recurso não existe |
-| 409 | Conflict | Conflito de regra de negócio (ex.: horário/capacidade sobreposta) |
+| 409 | Conflict | Conflito de regra de negócio |
 | 422 | Unprocessable Content | Dado bem formado, mas inválido pela regra de negócio |
 | 429 | Too Many Requests | Rate limiting acionado |
-| 500 | Internal Server Error | Falha não tratada — deve virar log de auditoria/erro, nunca expõe stack trace ao cliente |
+| 500 | Internal Server Error | Falha não tratada — vira log de auditoria/erro, nunca expõe stack trace |
 | 503 | Service Unavailable | Dependência indisponível |
 
 ## Autenticação
 
 ### `POST /api/auth/login`
-Request:
 ```json
-{ "email": "funcionario@instituto.org", "senha": "..." }
+{ "email": "recepcionista@instituto.org", "senha": "..." }
 ```
-Response `200` — cria sessão, devolve cookie `HttpOnly`/`Secure`/`SameSite=Strict` com o identificador de sessão; corpo da resposta traz só o necessário para a interface:
+Response `200` — cria sessão, devolve cookie `HttpOnly`/`Secure`/`SameSite=Strict`:
 ```json
-{ "usuario_id": 7, "papeis": ["funcionario"] }
+{ "usuario_id": 7, "papeis": ["recepcionista"] }
 ```
-Response `401`: credenciais inválidas. Response `429`: rate limit de tentativas de login acionado.
+Response `401`: credenciais inválidas. Response `429`: rate limit de login acionado.
 
 ### `POST /api/auth/logout`
-Revoga a sessão atual no servidor (não apenas expira o cookie no cliente — ver tabela `sessoes` em `SDP_DOCUMENTACAO_PROJETO.md` seção 6.2). Response `200`.
+Revoga a sessão atual no servidor (`sessoes.revogado_em`), não apenas expira o cookie no cliente. Response `200`.
+
+## Usuários e papéis
+
+> Corrigido em relação à versão anterior: não existe entidade `funcionarios` no schema — usuários do sistema são `usuarios` + `usuarios_papeis`, com 2 papéis possíveis (`administrador`, `recepcionista`).
+
+### `GET /api/usuarios` · `POST /api/usuarios` · `GET /api/usuarios/{id}`
+Papel de escrita: administrador. Campos: `nome`, `email`, `senha` (na criação), `papeis` (um ou mais).
+
+### `PATCH /api/usuarios/{id}/desativar`
+Papel: administrador. Marca `ativo = false` e revoga todas as sessões ativas do usuário — nunca `DELETE`.
 
 ## Pessoas atendidas
 
-> Campos exatos do cadastro dependem de D06 (`SDP_DECISOES_PENDENTES.md`) — os campos abaixo são um mínimo plausível de contato/identificação, não a lista definitiva.
+> Campos definitivos, D06 fechada — RG e CPF sempre obrigatórios.
 
 ### `GET /api/pessoas`
-Papéis: funcionário (todos), gestor (leitura), auditor (leitura). Filtros: `?nome=`, `?documento=`, `?ativo=`.
+Papéis: administrador (leitura), recepcionista (leitura/escrita). Filtros: `?nome=`, `?cpf=`, `?ativo=`.
 
 ### `POST /api/pessoas`
-Papel: funcionário.
-Request (❓ campos sujeitos a D06):
+Papel: recepcionista.
 ```json
 {
   "nome": "Maria Silva",
-  "documento": "12345678900",
+  "rg": "1234567",
+  "cpf": "12345678900",
+  "data_nascimento": "1990-04-12",
   "telefone": "21999990000",
   "email": "maria@email.com",
-  "endereco": "Rua X, 100"
+  "cep": "20000000",
+  "logradouro": "Rua X",
+  "numero": "100",
+  "bairro": "Centro",
+  "cidade": "Rio de Janeiro",
+  "uf": "RJ",
+  "escolaridade_id": 4,
+  "possui_cnh": false
 }
 ```
-Response `201`: pessoa criada. Response `409`: documento já cadastrado (se documento for exigido — depende de D06).
+Response `201`. Response `409`: CPF já cadastrado. `endereco` é preenchido automaticamente a partir do `cep` via API ViaCEP no Frontend, mas o Backend valida de novo antes de gravar (nunca confia só no que o cliente enviou).
 
 ### `GET /api/pessoas/{id}`
-Response `404` se não existir; `403` se o papel não tiver permissão sobre o recurso.
+Response `404` se não existir; `403` se o papel não tiver permissão.
 
 ### `PUT /api/pessoas/{id}`
-Papel: funcionário. Campos alteráveis definidos explicitamente por operação (proteção contra Mass Assignment — regra 12 de `SDP_SEGURANCA.md`); qualquer campo fora da lista permitida é ignorado e a tentativa é registrada em auditoria.
+Papel: recepcionista. Aceita apenas campos editáveis (telefone, e-mail, endereço, título de eleitor, escolaridade, CNH). `nome`, `rg`, `cpf`, `data_nascimento` são **rejeitados explicitamente** — tentativa registrada em auditoria; correção real passa por `POST /api/pessoas/{id}/correcoes-cadastrais`.
 
-## Funcionários e papéis
+### `POST /api/pessoas/{id}/correcoes-cadastrais`
+Papel: recepcionista (solicita), administrador (aprova — `aprovado_por`). Corrige `nome`/`rg`/`cpf`/`data_nascimento` com justificativa, fora do fluxo normal de `PUT`.
 
-### `GET /api/funcionarios` · `POST /api/funcionarios` · `GET /api/funcionarios/{id}`
-Papel de escrita: administrador. Campos: `usuario_id`, `papeis` (um ou mais, conforme RBAC).
+## Elegibilidade
 
-## Organizações ❓
+> Corrigido em relação à versão anterior: elegibilidade é **geral por pessoa** (D01), não por solicitação de serviço — o endpoint recebe `pessoa_id`, não `solicitacao_servico_id`.
 
-> Depende de D02. Se o instituto confirmar que existe só uma organização (o próprio instituto), esta seção inteira não é implementada na v1 — o instituto é um valor fixo, não uma entidade com CRUD.
+### `POST /api/elegibilidade/avaliar`
+Papel: recepcionista.
+```json
+{
+  "pessoa_id": 12,
+  "decisao": "elegivel",
+  "recebe_beneficio_governo": true,
+  "participa_projeto_social": false,
+  "renda_familiar": 1800.00,
+  "justificativa": "..."
+}
+```
+`decisao` aceita: `elegivel`, `nao_elegivel`, `em_avaliacao`, `necessita_revisao`. Cada chamada é um novo registro (somente-inserção) — nunca edita uma avaliação anterior. Gera auditoria com responsável, data e critério.
 
-### `GET /api/organizacoes` · `POST /api/organizacoes`
-Papel de escrita: administrador. **Placeholder — não implementar antes de D02 fechar.**
+### `GET /api/elegibilidade/{pessoa_id}`
+Retorna a decisão **vigente** (a mais recente) e, opcionalmente, `?historico=true` para todas as avaliações já feitas. Papéis: administrador, recepcionista.
 
 ## Serviços
 
 ### `GET /api/servicos` · `POST /api/servicos` · `PUT /api/servicos/{id}`
-Papel de escrita: administrador (ver D03 — pode mudar se o instituto quiser descentralizar a criação de serviços). Campos: `nome`, `descricao`, `organizacao_id` (se D02 confirmar múltiplas organizações), `capacidade`, `disponibilidade`, `requer_avaliacao_elegibilidade`.
+Papel de escrita: **administrador** (D03 — recepcionista só lê). Campos: `nome`, `descricao`, `organizacao_id` (opcional), `idade_minima` (opcional), `escolaridade_minima_id` (opcional), `requer_cnh` (opcional). "Excluir" um serviço é `PUT` com `ativo = false` — nunca `DELETE` físico, para não quebrar histórico de solicitações antigas.
+
+## Organizações parceiras
+
+> D02 fechada: organizações existem (parceiros externos, ex.: advogado), mas **nunca têm login nem acesso ao sistema**.
+
+### `GET /api/organizacoes` · `POST /api/organizacoes`
+Papel de escrita: administrador. Campos: `nome`, `tipo_contato`.
+
+### `GET /api/pessoas/{id}/encaminhamento.pdf`
+RF11. Papéis: administrador, recepcionista. Gera PDF com dados pertinentes da pessoa para entregar a uma organização parceira — nunca dá acesso direto ao sistema para o parceiro.
 
 ## Solicitações de serviço
 
 ### `POST /api/solicitacoes-servico`
-Papel: funcionário. Registra que uma pessoa solicitou (ou foi encaminhada a) um serviço.
-Request:
+Papel: recepcionista. Registra que uma pessoa solicitou um serviço; o Backend calcula automaticamente o pré-requisito (idade/escolaridade/CNH) e grava o snapshot usado na decisão.
+```json
+{ "pessoa_id": 12, "servico_id": 3 }
+```
+Response `201`:
 ```json
 {
-  "pessoa_id": 12,
-  "servico_id": 3
+  "id": 45,
+  "status": "apta_para_agendamento",
+  "prerequisito_atendido": true
 }
 ```
-Response `201`. Se `servico.requer_avaliacao_elegibilidade = true`, o status inicial da solicitação é `aguardando_avaliacao`; caso contrário, `apta_para_agendamento`.
+Se `prerequisito_atendido = false`, `status` já vem como `bloqueada_por_prerequisito` — a checagem acontece no `INSERT`, não depois.
 
 ### `GET /api/solicitacoes-servico/{id}`
-Retorna status da solicitação — nunca a decisão detalhada de elegibilidade junto (endpoint separado, com permissão separada).
-
-## Elegibilidade ❓
-
-> Contrato **provisório** — a estrutura definitiva depende de D01 (modelo geral vs. por serviço vs. híbrido). Implementar isso antes de D01 fechar arrisca reescrever o módulo inteiro depois.
-
-### `POST /api/elegibilidade/avaliar`
-Papel: avaliador (ou funcionário, se D05 confirmar que não existe papel separado).
-Request:
-```json
-{
-  "solicitacao_servico_id": 45,
-  "decisao": "elegivel",
-  "criterios_utilizados": "...",
-  "justificativa": "..."
-}
-```
-`decisao` aceita: `elegivel`, `nao_elegivel`, `necessita_revisao`. Toda chamada gera registro de auditoria com responsável, data e critério — nunca é aceita sem justificativa quando a decisão é `nao_elegivel` ou `necessita_revisao`.
-
-### `GET /api/elegibilidade/{solicitacao_servico_id}`
-Papéis: administrador, gestor (leitura), avaliador, auditor (leitura). Funcionário só vê o resultado (`elegivel`/`nao_elegivel`/`em_avaliacao`), não necessariamente o critério/justificativa completos — a granularidade exata depende de D01.
+Retorna status e snapshot do pré-requisito checado no momento da solicitação.
 
 ## Agenda
 
-### `GET /api/agenda?funcionario_id={id}&data={YYYY-MM-DD}`
-Papéis: funcionário (a própria agenda e, se aplicável, agenda de serviços que atende), gestor (leitura, qualquer), administrador (qualquer).
-Response `200`:
+> Corrigido em relação à versão anterior: agenda é por **serviço + data**, não por funcionário (D09 — o profissional nunca loga; a Recepcionista cadastra a data em nome dele).
+
+### `GET /api/agenda?servico_id={id}&data={YYYY-MM-DD}`
+Papéis: administrador (leitura), recepcionista (leitura/escrita).
 ```json
 {
-  "funcionario_id": 3,
+  "servico_id": 3,
   "data": "2026-09-08",
-  "horarios": [
-    { "inicio": "08:00", "fim": "08:30", "status": "livre" },
-    { "inicio": "08:30", "fim": "09:00", "status": "ocupado", "agendamento_id": 55 }
-  ]
+  "capacidade": 4,
+  "ocupados": 3,
+  "vagas_livres": 1
 }
 ```
 
-## Agendamentos
+### `POST /api/agenda`
+Papel: recepcionista. Cria uma data de agenda para um serviço.
+```json
+{
+  "servico_id": 3,
+  "responsavel_usuario_id": null,
+  "data": "2026-09-08",
+  "capacidade": 4
+}
+```
+`responsavel_usuario_id` é referência informativa opcional — nunca exige login do profissional. Response `409` se já existir uma data para esse serviço nessa data (`UNIQUE(servico_id, data)`).
+
+## Agendamentos e fila de espera
+
+> Corrigido: o corpo do `POST` não inclui mais `funcionario_id`/`hora_inicio` — a alocação é por `agenda_data_id` inteiro (data com capacidade), via a função `alocar_atendimento()`.
 
 ### `POST /api/agendamentos`
-Papel: funcionário.
-Request:
+Papel: recepcionista. Recusado com `422` se a solicitação não estiver com status `apta_para_agendamento`.
 ```json
-{
-  "solicitacao_servico_id": 45,
-  "funcionario_id": 3,
-  "data": "2026-09-08",
-  "hora_inicio": "09:00"
-}
+{ "solicitacao_servico_id": 45, "agenda_data_id": 9 }
 ```
-Recusado com `409` se a solicitação não estiver com status `apta_para_agendamento`. `hora_fim` é calculada no servidor a partir da duração do serviço — nunca aceita do cliente. Response `201` em sucesso; `409` se o horário/capacidade já estiver ocupado (o Backend recebe o erro da constraint do banco e traduz para uma resposta clara).
+Response `201`, corpo indica o resultado real da alocação (nunca é erro — fila de espera é fluxo normal):
+```json
+{ "resultado": "agendado", "agendamento_id": 101 }
+```
+ou
+```json
+{ "resultado": "fila_espera", "fila_espera_id": 7 }
+```
 
 ### `PATCH /api/agendamentos/{id}/cancelar`
-Papéis: funcionário, administrador.
+Papéis: recepcionista, administrador.
 
 ### `GET /api/agendamentos/{id}`
 Retorna status e dados do agendamento.
 
-## Atendimentos ❓
+## Atendimentos
 
-> Estrutura de campos depende de D04 — o exemplo abaixo é um mínimo genérico.
+> Corrigido: D04 fechou **só `compareceu`/`não compareceu`** — sem campo de observação livre.
 
 ### `POST /api/atendimentos`
-Papel: funcionário.
-Request (❓ campos sujeitos a D04):
+Papel: recepcionista.
 ```json
-{
-  "agendamento_id": 55,
-  "compareceu": true,
-  "observacoes": "..."
-}
+{ "agendamento_id": 55, "compareceu": true }
 ```
-Response `201`. Marca o agendamento correspondente como `concluido`.
+Response `201`. Marca o agendamento correspondente como `concluido` (se `compareceu = true`) ou `nao_compareceu` — automaticamente, via trigger de banco, não lógica duplicada na aplicação.
 
 ### `GET /api/atendimentos/{pessoa_id}`
-Histórico de atendimentos de uma pessoa. Papéis: funcionário, gestor (leitura), auditor (leitura).
+Histórico de atendimentos de uma pessoa. Papéis: administrador (leitura), recepcionista.
+
+## Central de Atendimento omnichannel — Fase 1
+
+> ⚠️ Sem decisão D0x rastreável — ver `REQUISITOS.md`, seção 9. Endpoints abaixo refletem a Fase 1 (registro manual do canal); endpoints de webhook (Fase 2) ainda não estão contratados aqui.
+
+### `GET /api/canais`
+Lista os canais disponíveis (presencial, telefone, whatsapp, e-mail, instagram, facebook, tiktok, site).
+
+### `POST /api/conversas`
+Papel: recepcionista. Abre uma conversa a partir de um contato — `pessoa_id` pode ser omitido se a pessoa ainda não foi identificada.
+```json
+{ "canal_id": 3, "pessoa_id": null }
+```
+Response `201`.
+
+### `PATCH /api/conversas/{id}/identificar`
+Papel: recepcionista. Vincula uma pessoa (existente ou recém-cadastrada) a uma conversa já aberta.
+```json
+{ "pessoa_id": 12 }
+```
+
+### `POST /api/conversas/{id}/mensagens`
+Papel: recepcionista (mensagens do tipo `atendente`; mensagens do tipo `pessoa` são registradas manualmente na Fase 1, representando o que a pessoa disse pelo canal).
+```json
+{ "remetente_tipo": "pessoa", "conteudo": "Gostaria de saber sobre atendimento jurídico" }
+```
+Response `201`. **Mensagens não podem ser editadas nem excluídas** após criadas (append-only, mesmo princípio da auditoria).
+
+### `GET /api/conversas/{id}/mensagens`
+Histórico completo da conversa, em ordem cronológica.
+
+### `POST /api/solicitacoes`
+Papel: recepcionista. Abre um ticket a partir de uma conversa.
+```json
+{
+  "conversa_id": 8,
+  "pessoa_id": 12,
+  "tipo": "agendamento",
+  "solicitacao_servico_id": 45
+}
+```
+`solicitacao_servico_id` é **obrigatório** quando `tipo = "agendamento"` (`422` se ausente — mesma regra do `CHECK` no banco).
+
+### `PATCH /api/solicitacoes/{id}`
+Papel: recepcionista. Atualiza `status` (`em_andamento`, `concluida`, `cancelada`) e `responsavel_id`.
 
 ## Auditoria (somente leitura)
 
 ### `GET /api/auditoria?tabela=&registro_id=&usuario_id=`
-Papel: auditor, gestor (leitura). Nenhum papel tem permissão de escrita direta nesta rota — os registros são gerados automaticamente pelo Backend a cada operação sensível (login, decisão de elegibilidade, alteração cadastral, agendamento, cancelamento).
+Papel: administrador. Nenhum papel tem permissão de escrita direta nesta rota — os registros são gerados automaticamente pelo Backend a cada operação sensível.

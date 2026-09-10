@@ -1,9 +1,16 @@
 # Arquitetura do Sistema — Sentindo a Dor do Próximo
 
+> Versão 2 — evolui a arquitetura original com a Central de Atendimento omnichannel. `BANCO_DADOS.md` e `REGRAS_NEGOCIO.md` são evoluídos em documentos separados (já atualizados).
+
 ## 1. Visão geral
 
 ```text
-Usuário (funcionário/gestor/administrador)
+                Site / WhatsApp / Instagram / Facebook / TikTok / E-mail / Telefone / Presencial
+                                        ↓
+                              Central de Atendimento
+                            (recebe e organiza contato)
+                                        ↓
+Usuário (recepcionista/administrador)
         ↓
 Frontend Web Responsivo
         ↓
@@ -12,13 +19,13 @@ Backend [Servidor] — FastAPI REST API
 PostgreSQL (Banco de Dados)
 ```
 
-> Diferente do projeto de referência usado como base estrutural (uma clínica com atendimento inicial por IA), **este sistema não tem componente de inteligência artificial** — ver `REQUISITOS.md`, seção 7, e `SDP_DOCUMENTACAO_PROJETO.md`, seção 1.4. A pessoa atendida não interage com o sistema diretamente; o contato acontece por meio do funcionário.
+> **Isso não é IA/chatbot.** A exclusão de IA/agente autônomo continua válida — o sistema não responde ninguém sozinho. A Central de Atendimento apenas **recebe e organiza** mensagens vindas de canais externos, para que a recepcionista responda manualmente, com o mesmo controle de auditoria de qualquer outra ação.
+>
+> ⚠️ A origem da confirmação deste requisito (quem no instituto aprovou, quando) ainda não está registrada de forma rastreável — ver `REGRAS_NEGOCIO.md`, seção 9, e `BANCO_DADOS.md`, seção 7, item 4.
 
-O Frontend nunca acessa o banco diretamente. Toda escrita ou leitura de dado passa pelo Backend, que é o único componente com credencial de banco.
+O Frontend continua nunca acessando o banco diretamente. Toda escrita ou leitura passa pelo Backend — único componente com credencial de banco.
 
 ## 2. Fluxo obrigatório de segurança
-
-Toda requisição passa pela mesma sequência, sem exceção:
 
 ```text
 Usuário
@@ -34,76 +41,92 @@ Regra de negócio  (isso é permitido nesse contexto?)
 Banco de dados
 ```
 
-Regra fixa: **o Frontend nunca é responsável por segurança.** Esconder um botão ou menu no Frontend não substitui a verificação no Backend — toda ação sensível é validada no servidor, mesmo que a interface já "pareça" impedir.
+### 2.1 Caso especial: mensagens recebidas por canal externo (Fase 2)
+
+Uma mensagem do WhatsApp/Instagram/Facebook/TikTok **não chega com login de usuário** — chega via *webhook* (ponto de entrada HTTP que a plataforma externa chama sozinha). Isso muda a primeira etapa do fluxo:
+
+```text
+Plataforma externa (Meta, WhatsApp Business, TikTok)
+   ↓
+Verificação de assinatura do webhook (HMAC/token do provedor — substitui "Autenticação")
+   ↓
+Validação do payload
+   ↓
+Regra de negócio (associar a uma pessoa/conversa existente ou criar nova)
+   ↓
+Banco de dados
+```
+
+**Regra fixa:** nenhum endpoint de webhook processa payload sem validar a assinatura fornecida pelo provedor (cada plataforma tem seu próprio mecanismo — ex.: Meta usa `X-Hub-Signature-256`). Sem essa verificação, qualquer um na internet poderia mandar payload forjado se descobrir a URL do endpoint. Ver `SEGURANCA.md`, regra 15, para a implicação disso em superfície de ataque pública.
 
 ## 3. Componentes
 
-- **Frontend**: consome a API REST do Backend; tecnologia a ser definida pela equipe (SPA responsiva); não guarda dado persistente localmente além do necessário para a sessão (nunca o token/sessão em `localStorage`/`sessionStorage` — ver `SDP_DOCUMENTACAO_PROJETO.md`, seção 3.5).
-- **Backend**: Python + FastAPI, organizado em módulos por domínio (seção 5).
-- **Banco de dados**: PostgreSQL — justificativa na seção 6.
-- **Containerização**: Docker + Docker Compose orquestrando Backend e banco em ambiente de desenvolvimento reprodutível.
+- **Frontend**: consome a API REST do Backend; SPA responsiva; nunca guarda token em `localStorage`/`sessionStorage`.
+- **Backend**: Python + FastAPI, módulos por domínio (seção 5), incluindo o módulo `central_atendimento`.
+- **Banco de dados**: PostgreSQL, nunca exposto publicamente.
+- **Webhooks de canal** (a partir da Fase 2): endpoints HTTP públicos e específicos por provedor (`/webhooks/whatsapp`, `/webhooks/instagram` etc.), expostos via HTTPS, mas **sem acesso direto ao banco** — passam pela mesma camada de serviço que qualquer outra escrita.
+- **Containerização**: Docker + Docker Compose orquestrando Backend e banco.
 
-## 4. Estrutura de pastas sugerida
-
-Diferente do padrão "por camada" (routes/services/repositories como pastas de topo), aqui a estrutura é organizada **por módulo de domínio primeiro**, e dentro de cada módulo por camada — mais adequado a FastAPI e ao fato de o Backend crescer em domínios de negócio distintos (elegibilidade, agendamento, auditoria) que precisam evoluir de forma relativamente independente:
+## 4. Estrutura de pastas
 
 ```text
 sentindo_a_dor_do_proximo/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── core/               # config, segurança, exceções centralizadas
-│   │   ├── db/                 # engine, sessão, migrations (Alembic)
+│   │   ├── core/
+│   │   ├── db/
 │   │   ├── modules/
 │   │   │   ├── auth/
 │   │   │   ├── usuarios/
 │   │   │   ├── pessoas/
-│   │   │   ├── funcionarios/
-│   │   │   ├── servicos/       # catálogo de ofertas (❓ D03 — governança)
-│   │   │   ├── elegibilidade/  # ❓ D01 — modelo ainda em aberto
+│   │   │   ├── servicos/
+│   │   │   ├── elegibilidade/
 │   │   │   ├── agendamentos/
-│   │   │   ├── atendimentos/   # ❓ D04 — o que é registrado
+│   │   │   ├── atendimentos/
 │   │   │   ├── auditoria/
+│   │   │   ├── central_atendimento/
+│   │   │   │   ├── canais/
+│   │   │   │   ├── conversas/
+│   │   │   │   ├── mensagens/
+│   │   │   │   ├── solicitacoes/
+│   │   │   │   └── webhooks/            # verificação de assinatura por provedor
 │   │   │   └── notificacoes/
-│   │   └── shared/             # utilitários cruzados, sem regra de negócio
+│   │   └── shared/
 │   ├── migrations/
 │   ├── tests/
-│   ├── requirements.txt / pyproject.toml
 │   └── .env.example
 ├── db/
-│   └── init/                   # scripts executados por docker-entrypoint-initdb.d
-│       └── db_init.sql         # ver BANCO_DADOS.md, seção 7
-├── frontend/                   # repositório compartilhado — não é responsabilidade deste documento
+│   └── init/
+├── frontend/
 ├── docs/
 ├── docker-compose.yml
 ├── .env.example
 └── .gitignore
 ```
 
-O módulo `organizacoes/` só é criado se D02 confirmar a existência de organizações parceiras.
-
 ## 5. Padrão de camadas do backend
 
-Dentro de cada módulo:
-
-- **router**: recebe a requisição HTTP, chama o serviço correspondente, devolve a resposta. Não contém regra de negócio.
-- **service**: contém a regra de negócio (ex.: "não permitir agendamento sobreposto"). É aqui que a autorização por papel é checada antes de qualquer escrita.
-- **repository**: única camada que conversa com o banco (SQLAlchemy). Nenhuma outra camada monta SQL diretamente.
-- **models**: representação das tabelas do banco (ORM).
-- **schemas**: validação Pydantic do formato dos dados de entrada e saída — protege contra Mass Assignment (campo não esperado é rejeitado, não ignorado silenciosamente).
-
-Regra de dependência: `router → service → repository → banco`. Nunca o inverso, e nunca pulando uma camada.
+Sem mudança na regra de dependência: `router → service → repository → banco`. O `router` de webhook tem uma responsabilidade extra — verificar a assinatura **antes** de chamar o `service` — mas depois disso segue o mesmo caminho de qualquer escrita.
 
 ## 6. Decisões técnicas e justificativa
 
-**Backend: FastAPI, não Flask**
-Tipagem e validação de schema nativas via Pydantic, e geração automática de contrato OpenAPI — relevante aqui porque o Frontend é desenvolvido por outra pessoa/equipe em paralelo, no mesmo repositório. Qualquer stack que a equipe já domine é aceitável (ver `SDP_DECISOES_PENDENTES.md`, T01); a arquitetura em módulos não depende do framework.
+**RBAC continua com 2 papéis: `administrador` e `recepcionista`.**
+A Central de Atendimento não exige papel novo — quem responde uma conversa de WhatsApp é a mesma recepcionista que já cadastra pessoa e agenda serviço. Nenhum profissional ou parceiro ganha login por causa disso (mantém D09 e D02 já fechadas).
 
-**Banco de dados: PostgreSQL**
-Necessidade de integridade relacional, transações e controle de concorrência em agendamento. O recurso mais relevante herdado do projeto de referência é o `EXCLUDE constraint`, que impede sobreposição de horário diretamente no banco — aplicável assim que o modelo de disponibilidade dos serviços (individual vs. turma/vaga) estiver definido (ver `BANCO_DADOS.md`, seção 2).
+**Chave primária: `SERIAL`, não `UUID`.**
+Cada mensagem recebida já carrega um identificador próprio da plataforma de origem (`identificador_externo`) — isso resolve o problema que `UUID` resolveria (evitar colisão com IDs externos) sem trocar o tipo de chave primária de todo o banco. `SERIAL` continua mais simples de indexar e de ler em debug.
 
-**Sem componente de IA**
-O projeto de referência usava um modelo local (Ollama) para triagem inicial do paciente. Este sistema não tem esse componente — decisão já confirmada (`REQUISITOS.md`, seção 7). Se isso mudar no futuro, será uma decisão nova, não uma retomada silenciosa do desenho antigo.
+**Faseamento da integração — recomendação forte.**
+Integrar de verdade com WhatsApp Business API, Meta Graph API (Instagram/Facebook) e TikTok API ao mesmo tempo é um projeto de infraestrutura por si só: cada uma exige cadastro de desenvolvedor aprovado, renovação periódica de token, e WhatsApp Business API tem custo por conversa em volume.
+
+| Fase | O que entra | Por quê |
+|---|---|---|
+| **Fase 1 (MVP)** | Tabelas `canais`/`conversas`/`mensagens`/`solicitacoes` prontas; recepcionista registra manualmente de qual canal veio o contato | Entrega organização e auditoria imediatamente, sem depender de aprovação de terceiros |
+| **Fase 2** | Integração real com um único canal (recomendado: WhatsApp) via webhook | Valida o fluxo com o menor risco antes de multiplicar por 4 plataformas |
+| **Fase 3** | Instagram, Facebook, TikTok, conforme necessidade confirmada de uso real | Cada canal a mais tem o mesmo padrão de código, mas custo de manutenção próprio |
+
+**Sem componente de IA.** Continua sem chatbot ou triagem automática.
 
 ## 7. Ambiente de desenvolvimento (Docker Compose)
 
@@ -126,15 +149,13 @@ services:
       timeout: 5s
       retries: 5
 
-# O serviço "backend" entra aqui na Sprint 3 (SDP_DOCUMENTACAO_PROJETO.md,
-# seção 8), quando a API FastAPI existir de fato. Por enquanto ele roda
-# fora do Docker, direto no ambiente Python local, conectando em
-# localhost:5432 com o usuário app_runtime (criado por db/init/db_init.sql,
-# não pelas variáveis DB_ADMIN_* acima, que configuram só o usuário
-# dono/bootstrap).
+# O serviço "backend" entra no compose na Sprint 3. A partir da Fase 2
+# (seção 6) ele passa a expor endpoints de webhook que precisam ser
+# alcançáveis pela internet via HTTPS — responsabilidade da hospedagem
+# (T03), não muda o princípio de que o BANCO continua em rede privada.
 
 volumes:
   db_data:
 ```
 
-Nenhuma senha ou chave vai no `docker-compose.yml` — tudo vem de variáveis de ambiente carregadas de um `.env` que **não é versionado**. Note que `DB_ADMIN_PASSWORD` (usuário `db_owner`/`DB_ADMIN_USER`, dono/migração) e `APP_DB_PASSWORD` (usuário `app_runtime`, o que o Backend efetivamente usa em runtime) são **propositalmente diferentes**, para que o `REVOKE` definido em `db_init.sql` tenha efeito real (ver `SDP_DECISOES_PENDENTES.md`, T04).
+Nenhuma senha ou chave vai no `docker-compose.yml`. Segredos de webhook (tokens de verificação de cada plataforma) seguem a mesma regra dos demais segredos: variável de ambiente, nunca no código, nunca versionados.

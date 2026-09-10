@@ -1,6 +1,8 @@
 # Roadmap de Desenvolvimento
 
-> Ordem cronológica de construção do sistema, do levantamento de requisitos até a entrega. Ligado a `SDP_DOCUMENTACAO_PROJETO.md` e `SDP_DECISOES_PENDENTES.md` — nenhuma Sprint aqui avança sobre uma decisão ainda marcada como pendente nesses documentos.
+> Ordem cronológica de construção do sistema, do levantamento de requisitos até a entrega. Ligado a `SDP_DOCUMENTACAO_PROJETO.md` e `SDP_DECISOES_PENDENTES.md`.
+>
+> ✅ **D01–D09 fechadas.** As Sprints abaixo foram atualizadas para refletir isso — não tratam mais essas decisões como pendências a resolver, e sim como schema/regra já implementados e testados.
 
 ## Regra de ouro da equipe
 
@@ -11,237 +13,201 @@ Nenhuma tarefa é considerada concluída só porque o código foi escrito. Ela p
 ## Visão geral das fases
 
 ```text
-Requisitos → Decisões pendentes fechadas → Arquitetura → Banco de dados → Backend base →
-Autenticação → Autorização → Pessoas → Serviços → Elegibilidade → Agenda → Agendamento →
-Atendimento → Frontend do MVP → Testes automatizados → Segurança → Auditoria/LGPD →
+Requisitos → Decisões de negócio (D01-D09, fechadas) → Arquitetura → Banco de dados → Backend base →
+Autenticação → Autorização → Pessoas → Serviços → Elegibilidade → Agenda/Fila de espera → Atendimento →
+Central de Atendimento (Fase 1) → Frontend do MVP → Testes automatizados → Segurança → Auditoria/LGPD →
 Usabilidade → Aceitação → Carga → Homologação → Deploy → Entrega
 ```
 
-Diferente de um roadmap genérico, aqui existe uma dependência explícita adicional: **nenhuma Sprint que envolva elegibilidade, organizações ou o papel de avaliador pode avançar em definitivo enquanto D01, D02 e D05 (`SDP_DECISOES_PENDENTES.md`) não forem respondidas pelo instituto.**
+---
+
+## Sprint 0 — Levantamento de requisitos ✅ Concluída
+
+- Problema, objetivo e fluxo principal do negócio definidos
+- Atores confirmados: administrador, recepcionista (D05: mesma pessoa cadastra e avalia elegibilidade)
+- Requisitos funcionais e não funcionais levantados
+- D01–D09 registradas e, ao longo do processo, todas fechadas
+
+**Entrega:** `SDP_DOCUMENTACAO_PROJETO.md`, `REQUISITOS.md`, `SDP_DECISOES_PENDENTES.md`.
 
 ---
 
-## Sprint 0 — Levantamento de requisitos
+## Sprint 1 — Decisões de negócio + arquitetura ✅ Concluída
 
-**Objetivo:** fechar o escopo antes de escrever qualquer código.
+- D01 (elegibilidade geral por pessoa), D02 (organizações sem login), D03 (só administrador cria serviço), D04 (atendimento só compareceu/não compareceu), D05 (sem papel avaliador separado), D06 (RG/CPF sempre obrigatórios), D07 (pré-requisito: idade/escolaridade/CNH), D08 (fila de espera), D09 (profissional nunca loga) — todas fechadas e registradas com data
+- RBAC simplificado para 2 papéis (`administrador`, `recepcionista`) — decisão técnica, ver ressalva em `REGRAS_NEGOCIO.md`, seção 4
+- DER definitivo desenhado
+- Central de Atendimento omnichannel incorporada à arquitetura (ver ressalva de proveniência em `REQUISITOS.md`, seção 9)
 
-- Definir problema, objetivo e fluxo principal do negócio
-- Confirmar os atores: administrador, gestor, funcionário, avaliador (❓ D05), auditor
-- Levantar requisitos funcionais e não funcionais
-- Levantar as decisões de negócio ainda em aberto e registrá-las formalmente (D01–D06)
-
-**Entrega:** `SDP_DOCUMENTACAO_PROJETO.md` v1.0 + `SDP_DECISOES_PENDENTES.md`. Ainda não se programa nesta Sprint.
+**Entrega:** `SDP_DOCUMENTACAO_PROJETO.md` e `SDP_DECISOES_PENDENTES.md` atualizados, DER definitivo, `ARQUITETURA.md` v2.
 
 ---
 
-## Sprint 1 — Fechamento de decisões + arquitetura
+## Sprint 2 — Banco de dados ✅ Concluída (schema principal); Central de Atendimento pendente de merge no script executável
 
-**Objetivo:** decidir como o sistema vai funcionar — de negócio e tecnicamente — antes de desenhar qualquer tabela.
+- Tabelas de autenticação: `usuarios`, `papeis`, `usuarios_papeis`, `sessoes`, `auditoria`
+- Tabelas de negócio: `niveis_escolaridade`, `pessoas`, `correcoes_cadastrais`, `avaliacoes_elegibilidade`, `organizacoes`, `servicos`, `solicitacoes_servico`, `agenda_datas`, `agendamentos`, `fila_espera`, `atendimentos`
+- Função `alocar_atendimento()` (capacidade decidida por transação, `FOR UPDATE`) e triggers de imutabilidade/status
+- Separação `db_owner`/`app_runtime` (T04), com `REVOKE` testado
+- 12 testes funcionais executados contra PostgreSQL 16 real — todos passaram
 
-- Levar D01 (modelo de elegibilidade), D02 (organizações) e D05 (papel avaliador) ao instituto e obter resposta formal — **esta Sprint não termina sem isso**
-- Fechar D03, D04 e D06 em paralelo, se possível
-- Aprovar as decisões técnicas T01–T09 com a equipe
-- Desenhar o DER definitivo (agora possível, com D01/D02/D06 respondidas)
-- Desenhar a matriz de permissões (RBAC) em detalhe técnico, já refletindo se o papel avaliador existe (D05)
-- Definir estrutura de pastas do repositório e padrão de organização do código (monólito modular — seção 3.4)
+**Pendente antes de fechar esta Sprint de vez:**
+- Tabelas da Central de Atendimento (`canais`, `conversas`, `mensagens`, `solicitacoes`) já estão em `BANCO_DADOS.md`, mas ainda não foram mergeadas em `db/init/db_init.sql` — ver `BANCO_DADOS.md`, seção 8, item 4
+- 4 testes novos (13–16) relacionados à Central de Atendimento ainda não executados
 
-**Entrega:** `SDP_DOCUMENTACAO_PROJETO.md` atualizado com as decisões fechadas + DER definitivo.
-
-**Critério de saída:** nenhum item 🔴 de `SDP_DECISOES_PENDENTES.md` continua em aberto.
-
----
-
-## Sprint 2 — Banco de dados
-
-**Objetivo:** construir a fundação. Nada é escrito no backend antes disso estar validado.
-
-- Criar banco, tabelas, chaves primárias e estrangeiras
-- Entidades da primeira leva, já sem dependência de decisão pendente: `usuarios`, `papeis`, `usuarios_papeis`, `sessoes`, `auditoria` (rascunho já em `SDP_DOCUMENTACAO_PROJETO.md` seção 6.2)
-- Entidades que dependiam de D01/D02/D06 (agora fechadas na Sprint 1): `pessoas`, `funcionarios`, `servicos`, `solicitacoes_servico`, `elegibilidade` (ou equivalente conforme modelo escolhido em D01), `agendamentos`, `atendimentos`, `organizacoes` (se D02 confirmar)
-- Implementar constraint de banco que impede sobreposição de horário/estouro de capacidade em `agendamentos`
-- Configurar separação de usuários do PostgreSQL por privilégio (T04): `migration_owner` ≠ `app_runtime`, com `UPDATE`/`DELETE` revogado de `app_runtime` em `auditoria`
-- Definir índices necessários (ex.: `agendamentos(funcionario_id, data)`)
-
-**Testar antes de seguir:** inserir, alterar, consultar; tentar `UPDATE`/`DELETE` em `auditoria` pelo usuário de aplicação (deve falhar); tentar criar dois agendamentos sobrepostos para o mesmo funcionário/capacidade (o segundo deve falhar).
-
-**Entrega:** banco funcional e validado por teste manual.
+**Entrega:** banco funcional e validado por teste manual — schema principal completo; Central de Atendimento aguardando merge.
 
 ---
 
-## Sprint 3 — Backend base
+## Sprint 3 — Backend base ⚠️ Iniciada com dívida técnica registrada
 
-**Objetivo:** montar o esqueleto da API antes de qualquer funcionalidade de negócio.
-
-- Estrutura do projeto (framework definido em T01), conexão com o banco, ORM
-- Tratamento de erros padronizado (nunca expõe stack trace/detalhe interno — ver `SDP_SEGURANCA.md`), validação de entrada
+- Estrutura do projeto (FastAPI), conexão com o banco, ORM
+- Tratamento de erros padronizado, validação de entrada
 - Logs de aplicação
-- Documentação OpenAPI (esqueleto, cresce a cada Sprint, a partir de `SDP_API.md`)
-- Configuração de variáveis de ambiente e secrets (regras 1 e 2 de `SDP_SEGURANCA.md`) desde o primeiro commit
 - `GET /health` (observabilidade mínima — T08)
 
-**Entrega:** API rodando localmente, sem funcionalidade de negócio ainda.
+**Dívida técnica conhecida:** o módulo de autenticação já implementado usa o RBAC antigo (5 papéis: administrador, gestor, funcionario, avaliador, auditor). Precisa de migration para o RBAC final (`administrador`, `recepcionista`) antes de qualquer dado real — ver `BANCO_DADOS.md`, seção 7.
 
 ---
 
-## Sprint 4 — Autenticação
+## Sprint 4 — Autenticação ✅ Concluída (aguardando migration de RBAC — ver Sprint 3)
 
-- Login, logout real com revogação de sessão (tabela `sessoes`), hash de senha (Argon2id ou bcrypt)
-- Sessão via cookie `HttpOnly`/`Secure`/`SameSite=Strict` com expiração
-- Rate limiting em tentativas de login (regra 14 de `SDP_SEGURANCA.md`)
-- MFA para administrador e papéis de alto privilégio, se aprovado em T02
+- Login, logout real com revogação de sessão, hash de senha
+- Sessão via cookie `HttpOnly`/`Secure`/`SameSite=Strict`
+- Rate limiting em tentativas de login
 
-**Testar:** senha correta → acesso; senha errada → bloqueio; usuário inexistente → erro; sessão expirada → acesso negado; logout → sessão realmente revogada no servidor (não só cookie apagado no navegador).
-
-**Entrega:** sistema autenticado.
+**Testar:** senha correta → acesso; senha errada → bloqueio; sessão expirada → acesso negado; logout → sessão revogada no servidor.
 
 ---
 
 ## Sprint 5 — Autorização (RBAC)
 
-- Implementar os papéis definidos na tabela RBAC de `SDP_DOCUMENTACAO_PROJETO.md` seção 4.2 — já fechada quanto à existência ou não do papel avaliador (D05)
-- Middleware de autorização no backend — nunca no frontend
-- Testar diretamente na API, não só na tela: um funcionário tentando acessar `/api/auditoria` deve receber `403 Forbidden`
-
-**Entrega:** controle de acesso funcionando e testado por papel.
+**Bloqueada até a migration da Sprint 3 ser feita.** Implementar os 2 papéis definitivos (`REGRAS_NEGOCIO.md`, seção 4); middleware de autorização no backend, nunca no frontend; testar diretamente na API (ex.: recepcionista tentando acessar `/api/auditoria` deve receber `403`).
 
 ---
 
 ## Sprint 6 — Cadastro de pessoas atendidas
 
-- Formulário de cadastro, consulta, edição, inativação — campos conforme D06
-- Endpoints com validação e checagem de autorização
-- Testes: dados inválidos → negado; usuário sem permissão → negado; Mass Assignment bloqueado
-
-**Entrega:** cadastro de pessoas funcionando de ponta a ponta.
+Formulário de cadastro, consulta, edição, inativação, correção cadastral auditada — campos definitivos de `BANCO_DADOS.md`, seção 4.3. Testes: CPF duplicado → negado; `UPDATE` direto em campo protegido → negado (trigger); Mass Assignment bloqueado.
 
 ---
 
-## Sprint 7 — Serviços (e organizações, se D02 confirmar)
+## Sprint 7 — Serviços e organizações parceiras
 
-- Catálogo de serviços genérico (nome, descrição, capacidade, disponibilidade, se exige avaliação de elegibilidade)
-- Se D02 confirmar múltiplas organizações: CRUD de organizações e vínculo com serviço/funcionário
-
-**Entrega:** sistema já conhece a estrutura real de oferta do instituto.
+Catálogo de serviços (escrita só administrador — D03); cadastro de organizações (sem login — D02); geração de PDF de encaminhamento (RF11).
 
 ---
 
 ## Sprint 8 — Elegibilidade
 
-**Pré-requisito obrigatório:** D01 e D05 fechadas desde a Sprint 1 — esta Sprint não deve começar sem isso.
-
-- Implementar o fluxo de solicitação de serviço → avaliação → decisão, conforme o modelo definido em D01
-- Registro de decisão com responsável, critério e justificativa
-- Auditoria de toda decisão e alteração de decisão
-
-**Entrega:** módulo de elegibilidade funcionando conforme o modelo aprovado pelo instituto.
+Fluxo de avaliação geral por pessoa (D01); registro somente-inserção; view de decisão vigente; auditoria de toda decisão.
 
 ---
 
-## Sprint 9 — Agenda e agendamento
+## Sprint 9 — Agenda, agendamento e fila de espera
 
-- Agenda por funcionário: disponibilidade, bloqueios, capacidade por serviço
-- Regra crítica: impedir sobreposição de horário/estouro de capacidade — garantida no backend/banco, não só na tela
-- Fluxo: solicitação apta → seleciona funcionário → sistema mostra horários livres → confirma → agendamento criado
-- Status do agendamento: `agendado`, `confirmado`, `concluído`, `cancelado`, `não compareceu`
-- Validação final sempre no servidor — mesmo que o horário parecesse livre no momento da consulta, o backend recusa o conflito no momento de salvar
-
-**Entrega:** agendamento completo, testado contra conflito de horário/capacidade.
+Cadastro de data + capacidade por serviço (D09: sempre em nome do profissional, sem login dele); função `alocar_atendimento()` chamada pela API; teste de concorrência (duas solicitações simultâneas disputando a última vaga).
 
 ---
 
 ## Sprint 10 — Atendimento e histórico
 
-**Pré-requisito:** D04 fechada.
-
-- Registro de atendimento conforme campos definidos em D04
-- Histórico de atendimentos por pessoa, visível conforme RBAC
+Registro `compareceu`/`não compareceu` (D04); trigger atualizando status do agendamento automaticamente; histórico por pessoa, visível conforme RBAC.
 
 **Entrega:** ciclo completo cadastro → solicitação → elegibilidade → agendamento → atendimento → histórico funcionando de ponta a ponta.
 
 ---
 
+## Sprint 10.5 — Central de Atendimento omnichannel, Fase 1 (NOVA)
+
+> ⚠️ Ver `REQUISITOS.md`, seção 9 — este requisito ainda não tem decisão D0x formalmente registrada. Recomenda-se resolver isso antes ou durante esta Sprint, não depois.
+
+- Merge das tabelas `canais`/`conversas`/`mensagens`/`solicitacoes` em `db/init/db_init.sql`
+- Endpoints de `POST /api/conversas`, `POST /api/conversas/{id}/mensagens`, `POST /api/solicitacoes` (ver `API.md`)
+- Registro **manual** do canal de origem pela recepcionista — sem integração de API externa nesta fase
+- Testes 13–16 de `BANCO_DADOS.md`, seção 6
+
+**Entrega:** Central de Atendimento operando manualmente, com auditoria completa de conversa e mensagem.
+
+---
+
 ## Sprint 11 — Frontend do MVP
 
-Telas: login, dashboard, pessoas atendidas, cadastro de pessoa, serviços, solicitação de serviço, avaliação de elegibilidade (conforme papel), agenda, agendamento, atendimento, perfil, controle de usuários.
+Telas: login, dashboard, pessoas atendidas, cadastro/correção de pessoa, serviços, solicitação de serviço, elegibilidade, agenda, agendamento, atendimento, central de atendimento (conversas/mensagens), perfil, controle de usuários.
 
-**Critério de saída da Sprint:** um funcionário real conseguiria operar o sistema usando só essas telas.
+**Critério de saída:** uma recepcionista real conseguiria operar o sistema usando só essas telas.
 
 ---
 
 ## Sprint 12 — Testes automatizados
 
-- Testes unitários das regras de negócio (principalmente conflito de agenda/capacidade e regras de elegibilidade)
-- Testes de integração API → banco
-- Testes de autorização para cada papel
-- Testes de concorrência no agendamento (dois usuários tentando o mesmo horário/vaga)
+Testes unitários das regras de negócio (pré-requisito de serviço, capacidade/fila, elegibilidade); testes de integração API → banco; testes de autorização por papel; testes de concorrência no agendamento.
 
 ---
 
 ## Sprint 13 — Auditoria de segurança
 
-Percorrer as regras de `SDP_SEGURANCA.md` uma por uma e testar cada uma. Incluir teste específico de **IDOR**: tentar acessar `/api/pessoas/101` estando autenticado como funcionário sem relação com a pessoa 101 — deve ser negado.
+Percorrer as regras de `SEGURANCA.md` uma por uma e testar cada uma. Teste específico de IDOR obrigatório.
 
 ---
 
 ## Sprint 14 — Auditoria de dados e LGPD
 
-- Validar logs de auditoria (quem fez o quê, quando, em qual registro — especialmente decisões de elegibilidade)
-- Validar minimização de dados retornados pela API (cada papel recebe só o necessário)
-- Validar backup e teste de restauração (T06) — backup nunca restaurado em teste não conta como estratégia de recuperação
-- Confirmar que ambientes de desenvolvimento/homologação não usam dado real de pessoa atendida (T07)
+Validar logs de auditoria; validar minimização de dados retornados pela API; validar backup e teste de restauração (T06); confirmar que ambientes de desenvolvimento/homologação não usam dado real de pessoa atendida (T07).
 
 ---
 
 ## Sprint 15 — Testes de usabilidade
 
-Alguém fora da equipe de desenvolvimento usa o sistema sem explicação prévia ("cadastre uma pessoa", "registre uma solicitação de serviço"). Se a pessoa não conseguir sem ajuda, é um problema de UX a corrigir antes da entrega.
+Alguém fora da equipe usa o sistema sem explicação prévia.
 
 ---
 
 ## Sprint 16 — Testes de aceitação
 
-Verificar cada requisito de negócio original contra o sistema real — por exemplo: "funcionário sem relação com a pessoa não acessa o cadastro dela" → testar diretamente.
+Verificar cada requisito de negócio original contra o sistema real.
 
 ---
 
 ## Sprint 17 — Testes de carga
 
-Múltiplos usuários, múltiplos agendamentos simultâneos. Objetivo: descobrir se o sistema aguenta uso concorrente antes de expor isso ao instituto real.
+Múltiplos usuários, múltiplas solicitações simultâneas disputando capacidade.
 
 ---
 
 ## Sprint 18 — Homologação
 
-Simular o fluxo completo do instituto: pessoa chega → funcionário cadastra → solicita serviço → elegibilidade avaliada → agendamento → atendimento → histórico.
+Simular o fluxo completo do instituto, incluindo um contato chegando pela Central de Atendimento até o atendimento concluído.
 
 ---
 
 ## Sprint 19 — Deploy
 
-Servidor em nuvem, banco de produção em rede privada (nunca exposto publicamente — T03), HTTPS, domínio, secrets em produção, backups automatizados, monitoramento, logs, plano de resposta a incidentes.
+Servidor em nuvem, banco de produção em rede privada (T03), HTTPS, domínio, secrets em produção, backups automatizados, monitoramento, plano de resposta a incidentes.
+
+> A partir desta Sprint, se a Fase 2 da Central de Atendimento (webhooks) estiver em andamento, os endpoints de webhook precisam estar alcançáveis pela internet via HTTPS — sem expor o banco.
 
 ---
 
 ## Sprint 20 — Entrega
 
-A entrega não é "está funcionando". A entrega inclui:
-
 - **Produto** funcionando em ambiente real
 - **Código** organizado no repositório, com Pull Requests revisados
-- **Documentação** completa (`SDP_DOCUMENTACAO_PROJETO.md`, `SDP_DECISOES_PENDENTES.md` — já fechado, `SDP_API.md`, `SDP_SEGURANCA.md`, este roadmap)
+- **Documentação** completa e sincronizada (todos os documentos em `docs/`)
 - **Evidências**: testes, cobertura, decisões arquiteturais registradas
-- **Apresentação**: demonstração ao vivo do fluxo login → permissão → pessoa → solicitação → elegibilidade → agendamento → atendimento → auditoria
+- **Apresentação**: demonstração ao vivo do fluxo completo, incluindo Central de Atendimento
 
 ---
 
-## Divisão de trabalho sugerida (adaptar conforme tamanho real da equipe)
+## Divisão de trabalho sugerida
 
 | Sprints | Foco |
 |---|---|
-| 1, 2 | Fechamento de decisões + banco |
-| 6, 7 | Cadastro de pessoas + serviços |
-| 8 | Elegibilidade (a mais dependente de decisão de negócio — reservar tempo extra) |
-| 9, 10 | Agenda/agendamento + atendimento |
+| 2, 3 | Banco de dados + backend base (inclui migration de RBAC) |
+| 6, 7 | Cadastro de pessoas + serviços/organizações |
+| 8 | Elegibilidade |
+| 9, 10 | Agenda/fila de espera + atendimento |
+| 10.5 | Central de Atendimento (Fase 1) |
 | 4, 5 | Autenticação + autorização |
 
-A partir da Sprint 11 em diante, recomenda-se misturar quem trabalhou em partes diferentes do sistema para revisão cruzada de código — quem construiu elegibilidade revisa quem construiu agendamento, e vice-versa. Isso reduz o risco de uma única pessoa ser a única a entender uma parte crítica do sistema (especialmente elegibilidade, que é o módulo mais sensível a erro).
+A partir da Sprint 11 em diante, recomenda-se revisão cruzada de código entre quem trabalhou em partes diferentes do sistema, especialmente elegibilidade (módulo mais sensível a erro de negócio).
